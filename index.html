@@ -44,6 +44,7 @@ header b{color:var(--gold)}
 .card.fresh{border-color:var(--ok)}
 .card.bad{border-color:var(--bad)}
 .card.bad b{color:var(--bad)}
+.card.pending{border:2px dashed var(--gold)}
 .gap{flex:0 0 46px;margin:0 5px;padding:0;border-style:dashed;font-size:1.5rem;color:var(--gold)}
 #tl:not(.placing) .gap{visibility:hidden;flex-basis:6px;margin:0}
 
@@ -103,8 +104,9 @@ dialog .big{font-size:2.4rem;color:var(--gold);margin:.3rem 0}
     </div>
   </div>
   <div id="controls">
-    <span id="hint">Koppints a + jelre oda, ahová szerinted tartozik.</span>
+    <span id="hint">Tedd a + jellel a helyére, majd fedd fel.</span>
     <button id="otherBtn">Másik kép</button>
+    <button class="main hidden" id="revealBtn">Felfedés</button>
     <button class="main hidden" id="nextBtn">Következő</button>
   </div>
   <div id="tl"></div>
@@ -123,7 +125,7 @@ dialog .big{font-size:2.4rem;color:var(--gold);margin:.3rem 0}
 <script>
 // Ide másold be a TMDB-kulcsot (a rövid API Key-t vagy a hosszú Read Access Tokent).
 // Ha üresen marad, a játék első induláskor egyszer megkérdezi, és az adott böngésző megjegyzi.
-const TMDB_KEY = '404bda6006137e2ff3eaa3d99692532d';
+const TMDB_KEY = '';
 
 const $ = id => document.getElementById(id);
 const IMG = 'https://image.tmdb.org/t/p/';
@@ -188,10 +190,14 @@ async function loadCard() {
   throw new Error('Ezekkel a beállításokkal nem találtam címet.');
 }
 
-// Igaz, ha a year évszám az i-edik helyre beillik. Teszt a konzolban:
-// fits([{year:1990},{year:2000}], 1, 1995) === true && fits([{year:1990}], 0, 1995) === false
+// Igaz, ha a year évszám az i-edik helyre beillik. A piros (elrontott) kártyák nem számítanak,
+// azonos évszám mindkét oldalon jó. Teszt a konzolban:
+// fits([{year:1990},{year:2000}], 1, 1995) && fits([{year:1995}], 0, 1995) && fits([{year:1995}], 1, 1995)
+//   && fits([{year:1990},{year:1998,ok:false},{year:2000}], 1, 1999) && !fits([{year:1990}], 0, 1995)
 function fits(tl, i, year) {
-  return (i === 0 || tl[i - 1].year <= year) && (i === tl.length || tl[i].year >= year);
+  const left = tl.slice(0, i).filter(c => c.ok !== false).pop();
+  const right = tl.slice(i).find(c => c.ok !== false);
+  return (!left || left.year <= year) && (!right || right.year >= year);
 }
 
 function fmt(ms) {
@@ -266,6 +272,7 @@ async function next() {
   } catch (e) { return showMessage(e.message, next); }
   prefetch = null;
   g.n++;
+  g.pos = null;
   g.t0 = Date.now();
   showCard(g.cur);
   render();
@@ -293,7 +300,20 @@ function showCard(c) {
   $('reveal').classList.add('hidden');
   $('hint').classList.remove('hidden');
   $('otherBtn').classList.toggle('hidden', c.imgs.length < 2);
+  $('revealBtn').classList.toggle('hidden', g.pos == null);
   $('nextBtn').classList.add('hidden');
+}
+
+function choose(i) {
+  if (!g.cur) return;
+  g.pos = i;
+  $('revealBtn').classList.remove('hidden');
+  render();
+  save();
+}
+
+function reveal() {
+  if (g.cur && g.pos != null) place(g.pos);
 }
 
 function otherImage() {
@@ -308,6 +328,7 @@ function place(i) {
   g.ms += Date.now() - g.t0;
   g.t0 = null;
   g.cur = null;
+  g.pos = null;
   c.ok = fits(g.tl, i, c.year);
   if (c.ok) {
     g.score++;
@@ -322,6 +343,7 @@ function place(i) {
   rv.querySelector('.y').textContent = c.year + (c.ok ? ' ✓' : ' ✗');
   $('hint').classList.add('hidden');
   $('otherBtn').classList.add('hidden');
+  $('revealBtn').classList.add('hidden');
   $('nextBtn').classList.remove('hidden');
   render(c);
   save();
@@ -337,25 +359,34 @@ function render(fresh) {
     const b = document.createElement('button');
     b.className = 'gap';
     b.textContent = '+';
-    b.onclick = () => g.cur && place(i);
+    b.onclick = () => choose(i);
     return b;
   };
-  g.tl.forEach((c, i) => {
-    tl.append(gap(i));
+  const cardEl = (c, cls, yearText, titleText) => {
     const el = document.createElement('div');
-    el.className = 'card' + (c.start ? ' start' : '') + (c.ok === false ? ' bad' : '') + (c === fresh && c.ok ? ' fresh' : '');
+    el.className = 'card ' + cls;
     const img = document.createElement('img');
     img.src = IMG + 'w300' + c.imgs[c.img];
     img.alt = '';
     const year = document.createElement('b');
-    year.textContent = c.year;
+    year.textContent = yearText;
     const title = document.createElement('small');
-    title.textContent = c.title;
+    title.textContent = titleText;
     el.append(img, year, title);
+    return el;
+  };
+  for (let i = 0; i <= g.tl.length; i++) {
+    if (g.cur && g.pos === i) {
+      const el = cardEl(g.cur, 'pending', '?', 'ide tetted');
+      tl.append(el);
+      requestAnimationFrame(() => el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }));
+    } else tl.append(gap(i));
+    if (i === g.tl.length) break;
+    const c = g.tl[i];
+    const el = cardEl(c, (c.start ? 'start' : '') + (c.ok === false ? ' bad' : '') + (c === fresh && c.ok ? ' fresh' : ''), c.year, c.title);
     tl.append(el);
     if (c === fresh) requestAnimationFrame(() => el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }));
-  });
-  tl.append(gap(g.tl.length));
+  }
 }
 
 function end() {
@@ -381,6 +412,7 @@ $('startBtn').onclick = startGame;
 $('resumeBtn').onclick = resumeGame;
 $('menuBtn').onclick = () => { if (g && g.t0) { g.ms += Date.now() - g.t0; g.t0 = null; save(); } toMenu(); };
 $('otherBtn').onclick = otherImage;
+$('revealBtn').onclick = reveal;
 $('nextBtn').onclick = next;
 $('againBtn').onclick = () => { $('endDlg').close(); startGame(); };
 $('endMenuBtn').onclick = toMenu;
