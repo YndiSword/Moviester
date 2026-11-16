@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Filmkocka idővonal</title>
+<style>
+:root{--bg:#121216;--card:#1e1e26;--line:#34343f;--text:#ecebe6;--dim:#9a98a6;--gold:#e8b44a;--ok:#4fae6a;--bad:#d0524f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.4 system-ui,sans-serif}
+button{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:.7em 1.1em;cursor:pointer}
+button.main{background:var(--gold);color:#1a1300;border:0;font-weight:600}
+.hidden{display:none!important}
+
+#menu{max-width:520px;margin:0 auto;padding:2rem 1.2rem}
+h1{font-size:1.7rem;margin:0 0 1.2rem}
+.row{display:flex;gap:1rem;align-items:center;margin:1rem 0;flex-wrap:wrap}
+label{display:flex;gap:.5rem;align-items:center}
+input[type=number],select{font:inherit;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:.45em .6em;width:6.5em}
+input[type=checkbox]{width:1.3em;height:1.3em;accent-color:var(--gold)}
+.note{color:var(--dim);font-size:.8rem;margin-top:2.5rem}
+
+#game{display:flex;flex-direction:column;height:100dvh}
+header{display:flex;justify-content:space-between;align-items:center;padding:.5rem 1rem;gap:1rem}
+header b{color:var(--gold)}
+#stage{flex:1;min-height:0;display:grid;place-items:center;padding:0 1rem}
+#frame{position:relative;width:min(100%,calc((100dvh - 300px)*1.778));aspect-ratio:16/9;background:#000;border-radius:12px;overflow:hidden}
+#shot{width:100%;height:100%;object-fit:cover;display:block}
+#kind{position:absolute;top:.6rem;left:.6rem;background:#000b;padding:.2em .6em;border-radius:6px;font-size:.85rem}
+#msg{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:1rem;color:var(--dim)}
+#reveal{position:absolute;left:0;right:0;bottom:0;padding:1.2rem 1rem .8rem;background:linear-gradient(transparent,#000d 40%)}
+#reveal .t{font-size:1.4rem;font-weight:600}
+#reveal .y{font-size:1.1rem}
+#reveal.ok .y{color:var(--ok)}
+#reveal.bad .y{color:var(--bad)}
+#controls{display:flex;justify-content:center;align-items:center;gap:.8rem;padding:.6rem 1rem;min-height:3.6rem;color:var(--dim)}
+
+#tl{display:flex;overflow-x:auto;padding:.4rem 1rem 1rem;min-height:170px;align-items:stretch}
+.card{flex:0 0 130px;background:var(--card);border-radius:10px;overflow:hidden;border:2px solid transparent}
+.card img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
+.card b{display:block;text-align:center;font-size:1.3rem;color:var(--gold)}
+.card small{display:block;text-align:center;padding:0 .4rem .4rem;font-size:.8rem;color:var(--dim)}
+.card.start{border-color:var(--gold)}
+.card.fresh{border-color:var(--ok)}
+.card.bad{border-color:var(--bad)}
+.card.bad b{color:var(--bad)}
+.gap{flex:0 0 46px;margin:0 5px;padding:0;border-style:dashed;font-size:1.5rem;color:var(--gold)}
+#tl:not(.placing) .gap{visibility:hidden;flex-basis:6px;margin:0}
+
+dialog{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:1.5rem;text-align:center}
+dialog::backdrop{background:#000a}
+dialog .big{font-size:2.4rem;color:var(--gold);margin:.3rem 0}
+</style>
+</head>
+<body>
+
+<section id="menu">
+  <h1>Filmkocka idővonal</h1>
+  <div class="row">
+    <label><input type="checkbox" id="movie" checked> Filmek</label>
+    <label><input type="checkbox" id="tv" checked> Sorozatok</label>
+  </div>
+  <div class="row">
+    <label>Évtől <input type="number" id="from" min="1920" max="2030" value="1970"></label>
+    <label>Évig <input type="number" id="to" min="1920" max="2030" value="2026"></label>
+  </div>
+  <div class="row">
+    <label>Ismertség
+      <select id="top">
+        <option value="200">Top 200</option>
+        <option value="500">Top 500</option>
+        <option value="1000" selected>Top 1000</option>
+        <option value="3000">Top 3000</option>
+      </select>
+    </label>
+    <label>Kártyák
+      <select id="count"><option>10</option><option>15</option><option>20</option></select>
+    </label>
+  </div>
+  <div class="row">
+    <label><input type="checkbox" id="keepWrong" checked> Az elrontott kártyák pirosan maradjanak</label>
+  </div>
+  <div class="row">
+    <button class="main" id="startBtn">Új játék</button>
+    <button id="resumeBtn" class="hidden">Folytatás</button>
+  </div>
+  <p class="note">Az adatok és képek forrása a TMDB (themoviedb.org).<br>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+</section>
+
+<section id="game" class="hidden">
+  <header>
+    <button id="menuBtn">Menü</button>
+    <span>Kártya <b id="num"></b></span>
+    <span>Jó: <b id="score"></b></span>
+    <span><b id="time">0:00</b></span>
+  </header>
+  <div id="stage">
+    <div id="frame">
+      <img id="shot" alt="">
+      <span id="kind"></span>
+      <div id="msg"></div>
+      <div id="reveal" class="hidden"><div class="t"></div><div class="y"></div></div>
+    </div>
+  </div>
+  <div id="controls">
+    <span id="hint">Koppints a + jelre oda, ahová szerinted tartozik.</span>
+    <button id="otherBtn">Másik kép</button>
+    <button class="main hidden" id="nextBtn">Következő</button>
+  </div>
+  <div id="tl"></div>
+</section>
+
+<dialog id="endDlg">
+  <div>Eredmény</div>
+  <div class="big" id="endScore"></div>
+  <div id="endTime"></div>
+  <div class="row" style="justify-content:center">
+    <button class="main" id="againBtn">Új játék</button>
+    <button id="endMenuBtn">Menü</button>
+  </div>
+</dialog>
+
+<script>
+// Ide másold be a TMDB-kulcsot (a rövid API Key-t vagy a hosszú Read Access Tokent).
+// Ha üresen marad, a játék első induláskor egyszer megkérdezi, és az adott böngésző megjegyzi.
+const TMDB_KEY = '';
+
+const $ = id => document.getElementById(id);
+const IMG = 'https://image.tmdb.org/t/p/';
+const SKIP_GENRES = [10763, 10764, 10767]; // hírek, valóságshow, talkshow
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+function store(key, value) { try { localStorage[key] = JSON.stringify(value); } catch {} }
+function load(key) { try { return JSON.parse(localStorage[key]); } catch { return null; } }
+
+let KEY = TMDB_KEY || load('tmdbKey') || '';
+let s = load('filmkockaBeall') || {};
+let g = null;          // játékállás
+let used = new Set();  // már kihúzott címek
+let pageCount = {};
+let prefetch = null;
+
+async function tmdb(path, params = {}) {
+  const url = new URL('https://api.themoviedb.org/3' + path);
+  const bearer = KEY.length > 40;
+  if (!bearer) params.api_key = KEY;
+  url.search = new URLSearchParams(params);
+  const res = await fetch(url, bearer ? { headers: { Authorization: 'Bearer ' + KEY } } : {});
+  if (res.status === 401) { store('tmdbKey', ''); throw new Error('Hibás API-kulcs.'); }
+  if (!res.ok) throw new Error('TMDB hiba: ' + res.status);
+  return res.json();
+}
+
+async function loadCard() {
+  const types = [s.movie && 'movie', s.tv && 'tv'].filter(Boolean);
+  for (let tries = 0; tries < 8; tries++) {
+    const type = pick(types);
+    const dateKey = type === 'movie' ? 'primary_release_date' : 'first_air_date';
+    const params = {
+      language: 'hu-HU', sort_by: 'vote_count.desc', include_adult: false,
+      [dateKey + '.gte']: s.from + '-01-01', [dateKey + '.lte']: s.to + '-12-31'
+    };
+    if (!pageCount[type]) {
+      const first = await tmdb('/discover/' + type, params);
+      pageCount[type] = Math.max(1, Math.min(first.total_pages, Math.ceil(s.top / 20), 500));
+    }
+    params.page = 1 + Math.floor(Math.random() * pageCount[type]);
+    const list = (await tmdb('/discover/' + type, params)).results.filter(r =>
+      r.backdrop_path && (r.release_date || r.first_air_date) &&
+      !used.has(type + r.id) && !r.genre_ids.some(id => SKIP_GENRES.includes(id)));
+    if (!list.length) continue;
+
+    const r = pick(list);
+    used.add(type + r.id);
+    // a nyelv nélküli háttérképeken nincs felirat
+    const imgs = (await tmdb(`/${type}/${r.id}/images`, { include_image_language: 'null' }))
+      .backdrops.map(b => b.file_path);
+    const all = imgs.length ? imgs : [r.backdrop_path];
+    return {
+      title: r.title || r.name,
+      orig: r.original_title || r.original_name,
+      year: +(r.release_date || r.first_air_date).slice(0, 4),
+      tv: type === 'tv',
+      imgs: all,
+      img: Math.floor(Math.random() * all.length)
+    };
+  }
+  throw new Error('Ezekkel a beállításokkal nem találtam címet.');
+}
+
+// Igaz, ha a year évszám az i-edik helyre beillik. Teszt a konzolban:
+// fits([{year:1990},{year:2000}], 1, 1995) === true && fits([{year:1990}], 0, 1995) === false
+function fits(tl, i, year) {
+  return (i === 0 || tl[i - 1].year <= year) && (i === tl.length || tl[i].year >= year);
+}
+
+function fmt(ms) {
+  const sec = Math.floor(ms / 1000);
+  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+
+function save() { store('filmkocka', { g, used: [...used] }); }
+
+function readMenu() {
+  s = {
+    movie: $('movie').checked, tv: $('tv').checked,
+    from: +$('from').value || 1920, to: +$('to').value || 2030,
+    top: +$('top').value, count: +$('count').value, keepWrong: $('keepWrong').checked
+  };
+  store('filmkockaBeall', s);
+}
+
+function fillMenu() {
+  for (const k of ['movie', 'tv', 'keepWrong']) if (k in s) $(k).checked = s[k];
+  for (const k of ['from', 'to', 'top', 'count']) if (k in s) $(k).value = s[k];
+  const saved = load('filmkocka');
+  $('resumeBtn').classList.toggle('hidden', !(saved && saved.g && saved.g.tl));
+}
+
+function showScreen(game) {
+  $('menu').classList.toggle('hidden', game);
+  $('game').classList.toggle('hidden', !game);
+}
+
+function ensureKey() {
+  if (!KEY) KEY = (prompt('Add meg a TMDB API-kulcsot (csak egyszer kell ezen a gépen):') || '').trim();
+  if (KEY && !TMDB_KEY) store('tmdbKey', KEY);
+  return !!KEY;
+}
+
+async function startGame() {
+  readMenu();
+  if (!s.movie && !s.tv) return alert('Válassz legalább egyet: filmek vagy sorozatok.');
+  if (!ensureKey()) return;
+  g = { tl: [], cur: null, last: null, n: 0, score: 0, ms: 0 };
+  used = new Set();
+  pageCount = {};
+  prefetch = null;
+  showScreen(true);
+  showMessage('Töltés…');
+  try {
+    const first = await loadCard();
+    first.start = true;
+    g.tl = [first];
+    next();
+  } catch (e) { showMessage(e.message, startGame); }
+}
+
+function resumeGame() {
+  const saved = load('filmkocka');
+  if (!saved || !ensureKey()) return;
+  ({ g } = saved);
+  used = new Set(saved.used);
+  pageCount = {};
+  prefetch = null;
+  showScreen(true);
+  if (g.cur) { g.t0 = Date.now(); showCard(g.cur); render(); } else next();
+}
+
+async function next() {
+  if (g.n >= s.count) return end();
+  showMessage('Töltés…');
+  $('nextBtn').classList.add('hidden');
+  try {
+    g.cur = (prefetch && await prefetch) || await loadCard();
+  } catch (e) { return showMessage(e.message, next); }
+  prefetch = null;
+  g.n++;
+  g.t0 = Date.now();
+  showCard(g.cur);
+  render();
+  save();
+  prefetch = loadCard().catch(() => null);
+}
+
+function showMessage(text, retry) {
+  $('shot').removeAttribute('src');
+  $('kind').textContent = '';
+  $('reveal').classList.add('hidden');
+  $('msg').textContent = text;
+  if (retry) {
+    const b = document.createElement('button');
+    b.textContent = 'Újra';
+    b.onclick = retry;
+    $('msg').append(document.createElement('br'), b);
+  }
+}
+
+function showCard(c) {
+  $('msg').textContent = '';
+  $('shot').src = IMG + 'w1280' + c.imgs[c.img];
+  $('kind').textContent = c.tv ? 'Sorozat' : 'Film';
+  $('reveal').classList.add('hidden');
+  $('hint').classList.remove('hidden');
+  $('otherBtn').classList.toggle('hidden', c.imgs.length < 2);
+  $('nextBtn').classList.add('hidden');
+}
+
+function otherImage() {
+  const c = g.cur;
+  if (!c) return;
+  c.img = (c.img + 1) % c.imgs.length;
+  $('shot').src = IMG + 'w1280' + c.imgs[c.img];
+}
+
+function place(i) {
+  const c = g.cur;
+  g.ms += Date.now() - g.t0;
+  g.t0 = null;
+  g.cur = null;
+  c.ok = fits(g.tl, i, c.year);
+  if (c.ok) {
+    g.score++;
+    g.tl.splice(i, 0, c);
+  } else if (s.keepWrong) {
+    const j = g.tl.findIndex(x => x.year > c.year);
+    g.tl.splice(j < 0 ? g.tl.length : j, 0, c);
+  }
+  const rv = $('reveal');
+  rv.className = c.ok ? 'ok' : 'bad';
+  rv.querySelector('.t').textContent = c.title + (c.orig !== c.title ? ` (${c.orig})` : '');
+  rv.querySelector('.y').textContent = c.year + (c.ok ? ' ✓' : ' ✗');
+  $('hint').classList.add('hidden');
+  $('otherBtn').classList.add('hidden');
+  $('nextBtn').classList.remove('hidden');
+  render(c);
+  save();
+}
+
+function render(fresh) {
+  $('num').textContent = `${g.n}/${s.count}`;
+  $('score').textContent = g.score;
+  const tl = $('tl');
+  tl.innerHTML = '';
+  tl.classList.toggle('placing', !!g.cur);
+  const gap = i => {
+    const b = document.createElement('button');
+    b.className = 'gap';
+    b.textContent = '+';
+    b.onclick = () => g.cur && place(i);
+    return b;
+  };
+  g.tl.forEach((c, i) => {
+    tl.append(gap(i));
+    const el = document.createElement('div');
+    el.className = 'card' + (c.start ? ' start' : '') + (c.ok === false ? ' bad' : '') + (c === fresh && c.ok ? ' fresh' : '');
+    const img = document.createElement('img');
+    img.src = IMG + 'w300' + c.imgs[c.img];
+    img.alt = '';
+    const year = document.createElement('b');
+    year.textContent = c.year;
+    const title = document.createElement('small');
+    title.textContent = c.title;
+    el.append(img, year, title);
+    tl.append(el);
+    if (c === fresh) requestAnimationFrame(() => el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }));
+  });
+  tl.append(gap(g.tl.length));
+}
+
+function end() {
+  $('endScore').textContent = `${g.score} / ${s.count}`;
+  $('endTime').textContent = 'Idő: ' + fmt(g.ms);
+  store('filmkocka', null);
+  $('endDlg').showModal();
+}
+
+function toMenu() {
+  if ($('endDlg').open) $('endDlg').close();
+  showScreen(false);
+  fillMenu();
+}
+
+setInterval(() => {
+  if (g && !$('game').classList.contains('hidden'))
+    $('time').textContent = fmt(g.ms + (g.t0 ? Date.now() - g.t0 : 0));
+}, 250);
+
+$('shot').onerror = () => g && g.cur && g.cur.imgs.length > 1 && otherImage();
+$('startBtn').onclick = startGame;
+$('resumeBtn').onclick = resumeGame;
+$('menuBtn').onclick = () => { if (g && g.t0) { g.ms += Date.now() - g.t0; g.t0 = null; save(); } toMenu(); };
+$('otherBtn').onclick = otherImage;
+$('nextBtn').onclick = next;
+$('againBtn').onclick = () => { $('endDlg').close(); startGame(); };
+$('endMenuBtn').onclick = toMenu;
+fillMenu();
+</script>
+</body>
+</html>
